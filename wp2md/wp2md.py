@@ -45,6 +45,9 @@ WHAT2SAVE = {
         'comment_status',
         'post_name',
         'status',
+        'category',
+        'tags',
+        'cover',
         'post_type',
         'excerpt',
         'content',              # Generated: item content
@@ -76,8 +79,8 @@ WHAT2SAVE = {
 # (undefined names will remain unchanged)
 FIELD_MAP = {
     'creator': 'author',
-    'post_date': 'created',
-    'post_date_gmt': 'created_gmt',
+    'post_date': 'date',
+    'post_date_gmt': 'date_gmt',
 }
 
 DEFAULT_MAX_NAME_LEN = 50
@@ -100,6 +103,7 @@ def init():
     args = parse_args()
     init_logging(args.l, args.v)
     conf = {
+        'default_cover_file': args.cover,
         'source_file': args.source,
         'dump_path': args.d,
         'page_path': args.pg,
@@ -167,6 +171,11 @@ def parse_args():
         metavar='FILE',
         default=None,
         help='log to file')
+    parser.add_argument(
+        '--cover',
+        action='store',
+        default='',
+        help='Default cover image when none other is provided')
     parser.add_argument(
         '-d',
         action='store',
@@ -339,6 +348,7 @@ def uniquify(file_name):
 
     suffix = 0
     result = file_name
+    return result ### FIXME
     while True:
         if os.path.exists(result):
             suffix += 1
@@ -507,6 +517,7 @@ def dump(file_name, data, order):
             os.makedirs(dir_path)
 
         with codecs.open(file_name, 'w', 'utf-8') as f:
+            f.write('---\n')
             extras = {}
             for field in filter(lambda x: x in data, [item for item in order]):
                 if field in ['content', 'comments', 'excerpt']:
@@ -516,9 +527,13 @@ def dump(file_name, data, order):
                     if type(data[field]) == time.struct_time:
                         value = time.strftime(conf['page_date_fmt'], data[field])
                     else:
-                        value = data[field] or ''
-                    f.write(str_t("%s: %s\n") % (str_t(field), str_t(value)))
+                        value = data.get(field, '')
+                    if isinstance(value, list):
+                        f.write(str_t("%s: %s\n") % (str_t(field), str_t(value)))
+                    else:
+                        f.write(str_t("%s: \"%s\"\n") % (str_t(field), str_t(value).replace('"', '\\"')))
 
+            f.write('---\n')
             if extras:
                 excerpt = extras.get('excerpt', '')
                 excerpt = excerpt and '<!--%s-->' % excerpt
@@ -532,9 +547,6 @@ def dump(file_name, data, order):
 
                 if conf['fix_urls']:
                     content = fix_urls(html2md(content))
-
-                if 'title' in data:
-                    content = str_t("# %s\n\n%s") % (data['title'], content)
 
                 comments = generate_comments(extras.get('comments', []))
                 extras = filter(None, [excerpt, content, comments])
@@ -568,7 +580,9 @@ class CustomParser:
             self.start_section('channel')
 
         elif tag == 'item':
-            self.item = {'comments': []}
+            self.item = {'comments': [], 'tags': [], 'category': 'Default'}
+            if conf.get('default_cover_file'):
+                self.item['cover'] = conf['default_cover_file']
             self.start_section('item')
 
         elif self.item and tag == 'comment':
@@ -577,6 +591,8 @@ class CustomParser:
 
         elif self.cur_section():
             self.subj = tag
+            if attrib.get('domain') == 'post_tag':
+                self.subj = 'tags'
 
         else:
             self.subj = None
@@ -607,7 +623,10 @@ class CustomParser:
                 self.cmnt[self.subj] = data
 
             elif self.cur_section() == 'item':
-                self.item[self.subj] = data
+                if self.subj == 'tags':
+                    self.item[self.subj].append(data)
+                else: 
+                    self.item[self.subj] = data
 
             elif self.cur_section() == 'channel':
                 self.channel[self.subj] = data
