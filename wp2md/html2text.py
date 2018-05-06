@@ -251,13 +251,13 @@ class HTML2Text(HTMLParser.HTMLParser):
 
 
     def feed(self, data):
-        data = data.replace("</' + 'script>", "</ignore>")
+        data = data.replace("</' + 'script>", "</ignore>").replace('\n', '@@@@NEWLINE@@@@')
         HTMLParser.HTMLParser.feed(self, data)
 
     def handle(self, data):
         self.feed(data)
         self.feed("")
-        return self.optwrap(self.close())
+        return self.optwrap(self.close()).replace('@@@@NEWLINE@@@@', '\n')
 
     def outtextf(self, s):
         self.outtextlist.append(s)
